@@ -9,7 +9,13 @@ import type {
   ParsedCase,
 } from "./types";
 
-export const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Prioritas: NEXT_PUBLIC_API_URL (override eksplisit) → host yang sama dengan
+// halaman dibuka (mendukung akses dari perangkat lain di LAN) → localhost.
+export const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ||
+  (typeof window !== "undefined"
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : "http://localhost:8000");
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {

@@ -22,6 +22,15 @@ app = FastAPI(title="Generator Narasi Multi-Agent", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    # Akses dari perangkat lain di LAN (rentang privat: 10.x, 192.168.x, 172.16–31.x)
+    allow_origin_regex=(
+        r"https?://(?:"
+        r"localhost|127\.0\.0\.1|"
+        r"10\.\d{1,3}\.\d{1,3}\.\d{1,3}|"
+        r"192\.168\.\d{1,3}\.\d{1,3}|"
+        r"172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3}"
+        r")(?::\d+)?"
+    ),
     allow_methods=["*"],
     allow_headers=["*"],
 )

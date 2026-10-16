@@ -18,11 +18,32 @@ Aplikasi web untuk mengubah **teks kasus** (topik, rekomendasi headline, konteks
 
 Klik dua kali **`start.bat`** di root proyek. Script akan:
 1. Membuat virtualenv + install dependensi backend dan `npm install` frontend (hanya bila belum ada).
-2. Menjalankan backend dan frontend di dua jendela terpisah (`Narasi-Backend`, `Narasi-Frontend`).
-3. Membuka `http://localhost:3000` di browser.
+2. Menjalankan backend (`--host 0.0.0.0`, siap diakses dari perangkat lain) dan frontend di dua jendela terpisah (`Narasi-Backend`, `Narasi-Frontend`).
+3. Mendeteksi IP LAN komputer, menampilkan alamat akses jaringan, dan membuka `http://localhost:3000` di browser.
+
+Bila dijalankan **sebagai Administrator**, script otomatis membuka port 8000/3000 di Windows
+Firewall (profil domain/privat, berlaku terus). Tanpa admin, cukup klik **"Allow access"** bila
+Windows menanyakan izin firewall saat server pertama kali berjalan.
 
 Bila port 8000 / 3000 sudah terpakai, langkah terkait dilewati (server dianggap sudah berjalan).
 Tutup kedua jendela `Narasi-*` untuk menghentikan server.
+
+### Akses dari perangkat lain di jaringan (LAN)
+
+Frontend dan backend sudah siap jaringan:
+
+- Backend bind ke `0.0.0.0:8000` (semua antarmuka); frontend dev juga melayani origin jaringan.
+- Frontend otomatis memanggil backend di **host yang sama dengan halaman dibuka**
+  (dibuka dari perangkat lain → API ikut mengarah ke mesin ini). `NEXT_PUBLIC_API_URL`
+  hanya perlu diisi bila backend berada di host/port berbeda.
+- CORS backend mengizinkan origin lokal + rentang IP privat (10.x, 192.168.x, 172.16–31.x),
+  dan Next.js mengizinkan aset dev untuk origin tersebut (`allowedDevOrigins`).
+- `start.bat` mencetak alamat LAN, contoh `http://10.10.10.60:3000` dan
+  `http://10.10.10.60:8000/docs`; jendela `Narasi-Frontend` juga menampilkan baris `Network:`.
+
+Dari HP/laptop lain di jaringan yang sama, buka `http://<IP-LAN>:3000`.
+Bila tidak bisa dibuka: pastikan perangkat berada di jaringan yang sama dan izinkan
+python/node lewat Windows Firewall (atau jalankan `start.bat` sebagai Administrator sekali saja).
 
 ### Manual
 
@@ -34,7 +55,8 @@ python -m venv .venv
 .venv/Scripts/pip install -r requirements.txt        # Windows
 # source .venv/bin/activate && pip install -r requirements.txt   # Linux/macOS
 
-.venv/Scripts/python -m uvicorn app.main:app --port 8000 --host 127.0.0.1
+.venv/Scripts/python -m uvicorn app.main:app --port 8000 --host 0.0.0.0
+# Ganti ke --host 127.0.0.1 bila cukup diakses dari komputer ini saja.
 ```
 
 Cek: `http://localhost:8000/api/health` → `{"status":"ok","mode":"mock",...}`
@@ -47,8 +69,13 @@ npm install
 npm run dev
 ```
 
-Buka `http://localhost:3000`. Frontend membaca alamat backend dari `frontend/.env.local`
-(`NEXT_PUBLIC_API_URL`, default `http://localhost:8000`).
+Buka `http://localhost:3000`. Frontend otomatis memanggil backend di **host yang sama dengan
+halaman dibuka** (port 8000). `frontend/.env.local` hanya perlu diisi sebagai override eksplisit
+bila backend berada di host/port lain:
+
+```env
+# NEXT_PUBLIC_API_URL=http://192.168.1.10:8000
+```
 
 #### 3. Alur pemakaian
 
@@ -235,5 +262,3 @@ frontend/
   src/components/      # EditableList, ResultsPanel, AgentLogPanel
   src/lib/             # types (mirror schema backend), api client
 ```
-#   g e n e r a t o r - n a r a s i  
- 

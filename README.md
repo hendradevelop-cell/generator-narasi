@@ -13,6 +13,7 @@ Aplikasi web untuk mengubah **teks kasus** (topik, rekomendasi headline, konteks
 - Frontend: Next.js 16 (App Router) + TypeScript + Tailwind CSS 4 + `@supabase/supabase-js` → `frontend/`
 - Backend: Python FastAPI + pipeline agen berlapis → `backend/`
 - Database & Auth: **Supabase** (Postgres + Auth + RLS) → `supabase/migrations/`
+- Deployment: **Docker Compose** (opsional) → `docker-compose.yml`
 
 ---
 
@@ -91,6 +92,148 @@ Windows menanyakan izin firewall saat server pertama kali berjalan.
 
 Bila port 8000 / 3000 sudah terpakai, langkah terkait dilewati (server dianggap sudah berjalan).
 Tutup kedua jendela `Narasi-*` untuk menghentikan server.
+
+### Cara Docker (frontend + backend)
+
+Prasyarat: **Docker Desktop** (Compose v2). Supabase tetap layanan eksternal — tidak ada database
+di dalam container, jadi data tidak hilang saat container dihapus.
+
+1. Pastikan `backend/.env` dan `frontend/.env.local` sudah terisi (lihat **Setup Supabase**).
+2. Dari root proyek, jalankan:
+
+   ```bash
+   docker compose --env-file frontend/.env.local up -d --build
+   ```
+
+   Di Windows, bisa juga klik dua kali **`start-docker.bat`**.
+
+   `--env-file` wajib karena `NEXT_PUBLIC_*` ditanam ke bundle **saat build** image frontend,
+   bukan dibaca saat container berjalan.
+
+3. Buka:
+   - Aplikasi: `http://localhost:3000`
+   - API docs: `http://localhost:8000/docs`
+   - Health: `http://localhost:8000/api/health`
+
+Perintah lain:
+
+```bash
+docker compose logs -f                 # lihat log
+docker compose down                    # hentikan container
+docker compose --env-file frontend/.env.local up -d --build   # rebuild setelah kode/env frontend berubah
+docker compose exec backend python create_admin.py admin@redaksi.id "password" --nama "Admin"
+```
+
+Catatan Docker:
+
+- `backend/.env` dibaca sebagai environment **runtime**; setelah mengubahnya cukup
+  `docker compose up -d` (tanpa rebuild).
+- `frontend/.env.local` dibaca saat **build**; setelah mengubahnya wajib rebuild image frontend.
+- Akses LAN: buka `http://<IP-LAN>:3000`, lalu pastikan port **3000** dan **8000** terbuka di
+  firewall host. Frontend otomatis memanggil backend di host yang sama, port 8000.
+- Bila dipasang di balik reverse proxy/domain, gunakan **satu domain** dengan path `/api/`
+  diteruskan ke backend (lihat **Deploy ke Ubuntu Server**). Isi `NEXT_PUBLIC_API_URL=https://domain-anda`
+  di `frontend/.env.local` sebelum build, supaya frontend memanggil `/api/...` di origin yang sama.
+
+### Deploy ke Ubuntu Server
+
+Prasyarat: Ubuntu 22.04/24.04, akses SSH + sudo, dan kode sudah di-push ke Git (atau disalin via
+`rsync`/`scp`). Supabase tetap eksternal.
+
+1. **Install Docker Engine + Compose plugin** (repo resmi Docker):
+
+   ```bash
+   sudo apt update && sudo apt install -y ca-certificates curl
+   sudo install -m 0755 -d /etc/apt/keyrings
+   sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+   sudo chmod a+r /etc/apt/keyrings/docker.asc
+   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+   https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+     | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+   sudo apt update
+   sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+   sudo usermod -aG docker "$USER"   # logout/login agar berlaku
+   ```
+
+2. **Ambil kode dan isi env**:
+
+   ```bash
+   git clone https://github.com/hendradevelop-cell/generator-narasi.git
+   cd generator-narasi
+   cp backend/.env.example backend/.env
+   nano backend/.env                 # LLM_API_KEY, SUPABASE_URL, ANON_KEY, SERVICE_ROLE_KEY
+   nano frontend/.env.local          # NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+                                     # NEXT_PUBLIC_API_URL=https://domain-anda
+   chmod 600 backend/.env frontend/.env.local
+   ```
+
+   `SUPABASE_SERVICE_ROLE_KEY` hanya boleh ada di `backend/.env` — jangan pernah di frontend.
+   Migrasi SQL (`supabase/migrations/0001_init.sql`) cukup dijalankan sekali dari SQL Editor Supabase.
+
+3. **Jalankan** (bind ke loopback karena di balik Nginx):
+
+   ```bash
+   BIND_ADDR=127.0.0.1 docker compose --env-file frontend/.env.local up -d --build
+   docker compose ps
+   curl http://127.0.0.1:8000/api/health
+   ```
+
+   Bootstrap admin pertama (bila belum ada):
+
+   ```bash
+   docker compose exec backend python create_admin.py admin@domain-anda "PasswordKuat" --nama "Admin"
+   ```
+
+4. **Nginx + HTTPS** (satu domain, `/api/` ke backend):
+
+   ```nginx
+   server {
+       server_name narasi.domain-anda;
+       client_max_body_size 10m;
+
+       location /api/ {
+           proxy_pass http://127.0.0.1:8000;
+           proxy_set_header Host $host;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+       }
+
+       location / {
+           proxy_pass http://127.0.0.1:3000;
+           proxy_set_header Host $host;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection "upgrade";
+       }
+   }
+   ```
+
+   ```bash
+   sudo apt install -y nginx certbot python3-certbot-nginx
+   sudo ln -s /etc/nginx/sites-available/narasi /etc/nginx/sites-enabled/narasi
+   sudo nginx -t && sudo systemctl reload nginx
+   sudo certbot --nginx -d narasi.domain-anda
+   sudo ufw allow "Nginx Full"   # port 80/443 saja; 3000/8000 tidak perlu dibuka
+   ```
+
+   Catatan: port Docker yang di-publish bisa menembus UFW, karena itu gunakan
+   `BIND_ADDR=127.0.0.1` (langkah 3) sehingga 3000/8000 hanya bisa diakses dari server itu sendiri.
+
+5. **Update aplikasi**:
+
+   ```bash
+   git pull
+   BIND_ADDR=127.0.0.1 docker compose --env-file frontend/.env.local up -d --build
+   docker compose logs -f --tail=100
+   ```
+
+   Data tetap aman di Supabase — `docker compose down` tidak menghapus data. Ubah env backend →
+   `docker compose up -d`; ubah env frontend → rebuild (`up -d --build`).
+
+Untuk LAN tanpa domain, lewati Nginx dan jalankan tanpa `BIND_ADDR` (default `0.0.0.0`), lalu buka
+`http://<IP-server>:3000` dan izinkan port 3000/8000 di UFW.
 
 ### Akses dari perangkat lain di jaringan (LAN)
 
@@ -355,13 +498,17 @@ backend/
     llm.py             # klien LLM (opsional)
     agents/            # orchestrator, writer, fixer, fact_checker, compliance, uniqueness, editor
   create_admin.py      # bootstrap admin pertama (project baru)
+  Dockerfile           # image backend (python:3.12-slim)
 frontend/
   src/app/
     (auth)/login/      # halaman masuk
     (app)/             # route terproteksi: generator, history, admin
   src/components/      # AuthProvider, RequireAuth, TopBar, EditableList, ResultsPanel, AgentLogPanel
   src/lib/             # types (mirror schema backend), api client, supabase client
+  Dockerfile           # image frontend (Next.js standalone, node:22-alpine)
 supabase/
   migrations/0001_init.sql  # profiles, generations, narrations, RLS, trigger profil + backfill admin pertama
+docker-compose.yml     # orkestrasi backend + frontend
 start.bat              # launcher Windows (lokal + LAN)
+start-docker.bat       # launcher Windows untuk Docker Compose
 ```

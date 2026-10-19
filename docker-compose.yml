@@ -1,0 +1,40 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: narasi-backend
+    env_file:
+      - ./backend/.env
+    ports:
+      # BIND_ADDR=127.0.0.1 untuk produksi di balik Nginx (port tidak terbuka ke publik).
+      - "${BIND_ADDR:-0.0.0.0}:8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Nilai diambil dari env Compose. Jalankan dengan:
+        # docker compose --env-file frontend/.env.local up -d --build
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?Isi lewat --env-file frontend/.env.local}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?Isi lewat --env-file frontend/.env.local}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+    container_name: narasi-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${BIND_ADDR:-0.0.0.0}:3000:3000"
+    restart: unless-stopped

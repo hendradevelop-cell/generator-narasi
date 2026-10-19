@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
+  // Dipakai image Docker (frontend/Dockerfile): hasil build mandiri tanpa node_modules.
+  output: "standalone",
   cacheComponents: true,
   partialPrefetching: true,
   // Izinkan perangkat lain di LAN membuka dev server (Next 16 memblokir

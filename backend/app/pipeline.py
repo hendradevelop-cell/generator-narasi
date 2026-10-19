@@ -7,10 +7,10 @@ from .agents.base import log as agent_log
 from .config import settings
 from .llm import LLMClient
 from .schemas import AgentLog, GenerateRequest, GenerateResponse, KeunikanInfo, NarrationVariant
-from .store import recent_narrations, save_narration
+from .supabase_db import SupabaseError, recent_narrations, save_generation
 
 
-async def generate_narrations(req: GenerateRequest) -> GenerateResponse:
+async def generate_narrations(req: GenerateRequest, user: dict) -> GenerateResponse:
     client = LLMClient()
     logs: list[AgentLog] = []
 
@@ -21,14 +21,14 @@ async def generate_narrations(req: GenerateRequest) -> GenerateResponse:
     target_max: int = plan["target_kata_max"]
     jumlah_varian: int = plan["jumlah_varian"]
 
-    history = recent_narrations(200) if req.anti_duplikat else []
+    history = await recent_narrations(200) if req.anti_duplikat else []
     if history:
         logs.append(
             agent_log(
                 "L2",
                 "Basis Riwayat",
                 "Muat riwayat narasi",
-                detail=f"{len(history)} narasi lama dimuat untuk pemeriksaan anti-duplikat.",
+                detail=f"{len(history)} narasi dari Supabase dimuat untuk pemeriksaan anti-duplikat.",
             )
         )
 
@@ -154,19 +154,36 @@ async def generate_narrations(req: GenerateRequest) -> GenerateResponse:
                 cek_fakta=fact,
             )
         )
-        save_narration(req.topik, teks_final)
 
-    logs.append(
-        agent_log(
-            "L5",
-            "Agen Penyunting",
-            "Rakit hasil akhir",
-            detail=(
-                f"{len(varian)} varian lolos dan disimpan ke basis riwayat anti-duplikat."
-                if req.anti_duplikat
-                else f"{len(varian)} varian dihasilkan (aturan anti-duplikat nonaktif) dan tetap disimpan ke riwayat."
-            ),
+    simpan_gagal = ""
+    try:
+        await save_generation(user["id"], req, "llm" if client.available else "mock", varian)
+    except SupabaseError as e:
+        simpan_gagal = str(e)
+        logs.append(
+            agent_log(
+                "L2",
+                "Basis Riwayat",
+                "Gagal menyimpan riwayat",
+                status="catatan",
+                detail=(
+                    f"{e} Hasil tetap ditampilkan, tetapi run ini tidak tercatat di "
+                    "halaman Riwayat."
+                ),
+            )
         )
+
+    if simpan_gagal:
+        detail_akhir = f"{len(varian)} varian dihasilkan, tetapi riwayat gagal disimpan."
+    elif req.anti_duplikat:
+        detail_akhir = f"{len(varian)} varian lolos dan tersimpan ke riwayat Supabase."
+    else:
+        detail_akhir = (
+            f"{len(varian)} varian dihasilkan (aturan anti-duplikat nonaktif) dan tetap "
+            "tersimpan ke riwayat Supabase."
+        )
+    logs.append(
+        agent_log("L5", "Agen Penyunting", "Rakit hasil akhir", detail=detail_akhir)
     )
 
     return GenerateResponse(

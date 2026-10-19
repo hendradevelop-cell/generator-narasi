@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import AgentLogPanel from "@/components/AgentLogPanel";
 import EditableList from "@/components/EditableList";
+import RequireAuth from "@/components/RequireAuth";
 import ResultsPanel from "@/components/ResultsPanel";
 import { generateNarration, getHealth, parseCase } from "@/lib/api";
 import type {
@@ -86,6 +87,14 @@ function Field({
 }
 
 export default function Home() {
+  return (
+    <RequireAuth>
+      <GeneratorContent />
+    </RequireAuth>
+  );
+}
+
+function GeneratorContent() {
   const [raw, setRaw] = useState("");
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState(false);
@@ -212,37 +221,34 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen">
-      <header className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-4xl items-center justify-between gap-4 px-6 py-6">
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">Generator Narasi Multi-Agent</h1>
-            <p className="mt-0.5 text-sm text-slate-500">
-              Pilah kasus → sunting konten → generate narasi sesuai durasi.
-            </p>
-          </div>
-          <span
-            className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
-              backendDown
-                ? "bg-red-100 text-red-700"
-                : health
-                  ? "bg-emerald-100 text-emerald-700"
-                  : "bg-slate-100 text-slate-500"
-            }`}
-          >
-            {backendDown
-              ? "Backend offline"
-              : health
-                ? health.mode === "llm"
-                  ? `LLM: ${health.llm_model}`
-                  : "Mode Mock (offline)"
-                : "Menghubungkan..."}
-          </span>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Generator Narasi</h1>
+          <p className="mt-0.5 text-sm text-slate-500">
+            Pilah kasus → sunting konten → generate narasi sesuai durasi.
+          </p>
         </div>
-      </header>
+        <span
+          className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+            backendDown
+              ? "bg-red-100 text-red-700"
+              : health
+                ? "bg-emerald-100 text-emerald-700"
+                : "bg-slate-100 text-slate-500"
+          }`}
+        >
+          {backendDown
+            ? "Backend offline"
+            : health
+              ? health.mode === "llm"
+                ? `LLM: ${health.llm_model}`
+                : "Mode Mock (offline)"
+              : "Menghubungkan..."}
+        </span>
+      </div>
 
-      <main className="mx-auto max-w-4xl space-y-6 px-6 py-8">
-        {backendDown ? (
+      {backendDown ? (
           <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             Backend tidak terdeteksi. Jalankan:{" "}
             <code className="rounded bg-red-100 px-1.5 py-0.5 font-mono text-xs">
@@ -512,7 +518,6 @@ export default function Home() {
             </div>
           ) : null}
         </div>
-      </main>
     </div>
   );
 }

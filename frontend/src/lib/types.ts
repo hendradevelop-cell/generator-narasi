@@ -118,4 +118,50 @@ export type Health = {
   llm_model: string | null;
   words_per_minute: number;
   dup_threshold: number;
+  supabase?: boolean;
+};
+
+export type Profile = {
+  id: string;
+  email: string;
+  nama: string;
+  role: "user" | "admin";
+  created_at?: string;
+};
+
+export type CreateUserRequest = {
+  email: string;
+  password: string;
+  nama: string;
+  role: "user" | "admin";
+};
+
+export type UserAccount = {
+  id: string;
+  email: string;
+  nama: string;
+  role: "user" | "admin";
+};
+
+export type GenerationRecord = {
+  id: string;
+  user_id: string;
+  topik: string;
+  headline: string;
+  brief: string;
+  durasi_detik: number;
+  jumlah_varian_diminta: number;
+  jumlah_varian_hasil: number;
+  anti_duplikat: boolean;
+  mode: string;
+  created_at: string;
+  profiles?: { email: string; nama: string } | null;
+};
+
+export type NarrationRecord = {
+  id: string;
+  generation_id: string | null;
+  label: string;
+  teks: string;
+  created_at: string;
 };

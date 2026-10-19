@@ -5,7 +5,7 @@ import uuid
 
 from ..llm import LLMClient
 from ..schemas import AgentLog, FixRequest, FixResponse, NarrationVariant
-from ..store import recent_narrations, save_narration
+from ..supabase_db import SupabaseError, recent_narrations, save_narration
 from ..textutil import normalize_text, split_sentences
 from . import compliance, editor, fact_checker, orchestrator, uniqueness, writer
 
@@ -74,7 +74,7 @@ async def _llm_rewrite(
     return teks or None
 
 
-async def fix_narration(fx: FixRequest) -> FixResponse:
+async def fix_narration(fx: FixRequest, user: dict) -> FixResponse:
     client = LLMClient()
     logs: list[AgentLog] = []
 
@@ -87,9 +87,10 @@ async def fix_narration(fx: FixRequest) -> FixResponse:
     # Naskah asal dikecualikan dari riwayat: varian ini memang sedang ditulis ulang,
     # bukan dibandingkan dengan dirinya sendiri.
     norm_asal = normalize_text(fx.teks)
+    riwayat = await recent_narrations(200)
     history = [
         (topik, teks)
-        for topik, teks in recent_narrations(200)
+        for topik, teks in riwayat
         if normalize_text(teks) != norm_asal
     ]
     others = [
@@ -120,8 +121,8 @@ async def fix_narration(fx: FixRequest) -> FixResponse:
                 agen="Basis Riwayat",
                 aksi="Muat riwayat anti-duplikat",
                 detail=(
-                    f"{len(history)} narasi lama dimuat; naskah asal dikecualikan agar tidak "
-                    "dianggap duplikat dengan dirinya sendiri."
+                    f"{len(history)} narasi lama dari Supabase dimuat; naskah asal dikecualikan "
+                    "agar tidak dianggap duplikat dengan dirinya sendiri."
                 ),
             )
         )
@@ -217,8 +218,21 @@ async def fix_narration(fx: FixRequest) -> FixResponse:
     )
 
     berubah = normalize_text(teks_final) != norm_asal
+    tersimpan = False
     if berubah:
-        save_narration(fx.topik, teks_final)
+        try:
+            await save_narration(user["id"], fx.topik, fx.label or "Perbaikan", teks_final)
+            tersimpan = True
+        except SupabaseError as e:
+            logs.append(
+                AgentLog(
+                    lapisan="L2",
+                    agen="Basis Riwayat",
+                    aksi="Gagal menyimpan hasil perbaikan",
+                    status="catatan",
+                    detail=f"{e} Naskah hasil perbaikan tetap ditampilkan.",
+                )
+            )
     logs.append(
         AgentLog(
             lapisan="L5",
@@ -228,7 +242,11 @@ async def fix_narration(fx: FixRequest) -> FixResponse:
             detail=(
                 (
                     "Rules kini lolos; narasi telah diperbarui"
-                    + (" dan disimpan ke basis riwayat anti-duplikat." if berubah else ".")
+                    + (
+                        " dan disimpan ke riwayat Supabase."
+                        if tersimpan
+                        else ("." if not berubah else " (riwayat gagal disimpan).")
+                    )
                 )
                 if berhasil
                 else (

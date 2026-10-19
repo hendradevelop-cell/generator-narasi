@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class BahanItem(BaseModel):
@@ -100,6 +100,33 @@ class FixResponse(BaseModel):
     berhasil: bool
     varian: NarrationVariant
     log_agen: list[AgentLog] = Field(default_factory=list)
+
+
+class CreateUserRequest(BaseModel):
+    email: str = Field(min_length=3)
+    password: str = Field(min_length=6)
+    nama: str = ""
+    role: Literal["user", "admin"] = "user"
+
+    @field_validator("email")
+    @classmethod
+    def _validasi_email(cls, value: str) -> str:
+        email = value.strip().lower()
+        if "@" not in email or email.startswith("@") or email.endswith("@"):
+            raise ValueError("Format email tidak valid.")
+        return email
+
+    @field_validator("nama")
+    @classmethod
+    def _rapikan_nama(cls, value: str) -> str:
+        return value.strip()
+
+
+class UserAccount(BaseModel):
+    id: str
+    email: str
+    nama: str = ""
+    role: Literal["user", "admin"]
 
 
 class MediaRequest(BaseModel):

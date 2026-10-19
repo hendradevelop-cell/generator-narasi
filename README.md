@@ -6,9 +6,71 @@ Aplikasi web untuk mengubah **teks kasus** (topik, rekomendasi headline, konteks
 - Narasi digenerate sesuai **durasi target** dan **brief** yang diminta, hingga **10 varian** per run.
 - **Aturan anti-duplikat opsional** (default aktif): saat aktif, tidak ada narasi yang sama — baik antar varian dalam satu run maupun dengan narasi lama. Bisa dimatikan bila narasi yang mirip tetap diizinkan.
 - Setiap varian dilengkapi **Media Pendukung**: daftar link video YouTube terkait + gambar berlisensi terbuka (Openverse), lengkap dengan tautan pencarian cadangan.
+- **Login multi-user** dengan peran **user/admin** (Supabase Auth). Tidak ada pendaftaran mandiri: akun hanya dibuat admin dari halaman **Admin** dan langsung aktif tanpa verifikasi email.
+- **Riwayat generate tersimpan di Supabase** dan dapat dibuka di halaman **Riwayat** (user melihat miliknya, admin melihat semua). Admin dapat membuat akun dan mengelola peran di halaman **Admin**.
+- **Anti-duplikat bersifat global**: riwayat narasi seluruh pengguna dipakai sebagai pembanding.
 
-- Frontend: Next.js 16 (App Router) + TypeScript + Tailwind CSS 4 → `frontend/`
+- Frontend: Next.js 16 (App Router) + TypeScript + Tailwind CSS 4 + `@supabase/supabase-js` → `frontend/`
 - Backend: Python FastAPI + pipeline agen berlapis → `backend/`
+- Database & Auth: **Supabase** (Postgres + Auth + RLS) → `supabase/migrations/`
+
+---
+
+## Setup Supabase (wajib)
+
+1. Buat project di [supabase.com](https://supabase.com), lalu buka **SQL Editor**.
+2. Salin seluruh isi `supabase/migrations/0001_init.sql` → **Run**. Migrasi membuat tabel,
+   trigger profil otomatis, fungsi `is_admin()`, dan policy RLS. Aman dijalankan ulang.
+3. Isi kredensial dari **Project Settings → API**:
+
+   `backend/.env` (sudah tersedia sebagai template):
+
+   ```env
+   SUPABASE_URL=https://<project-ref>.supabase.co
+   SUPABASE_ANON_KEY=<anon/public key>
+   SUPABASE_SERVICE_ROLE_KEY=<service role / secret key>
+   ```
+
+   `frontend/.env.local`:
+
+   ```env
+   NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+   NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon/public key>
+   ```
+
+   Kunci legacy (`anon`, `service_role`) maupun kunci baru (publishable `sb_publishable_...`,
+   secret `sb_secret_...`) didukung. Di frontend isi **publishable/anon**, di backend isi
+   **secret/service_role** pada `SUPABASE_SERVICE_ROLE_KEY`.
+
+4. **Akun pertama (admin).** Pendaftaran mandiri sudah dihapus, jadi sediakan admin pertama dengan
+   salah satu cara:
+   - Bila project sudah punya akun auth (mis. dari percobaan sebelumnya), migrasi otomatis
+     mempromosikan akun paling awal menjadi **admin**.
+   - Untuk project benar-benar baru, jalankan dari folder `backend` (venv aktif):
+
+     ```bash
+     python create_admin.py admin@redaksi.id "password-ku" --nama "Admin"
+     ```
+
+   Setelah itu masuk di `/login`; akun berikutnya dibuat admin lewat halaman **Admin**.
+5. Akun yang dibuat dari halaman **Admin** (dan script di atas) langsung aktif — `email_confirm`
+   disetel `true`, jadi **tidak ada email verifikasi** dan tidak bergantung pada pengaturan
+   **Confirm email** di Supabase.
+
+> **Keamanan:** `SUPABASE_SERVICE_ROLE_KEY` hanya untuk backend dan melewati RLS — jangan pernah
+> memasukkannya ke frontend atau commit ke git. `backend/.env` dan `frontend/.env.local` sudah
+> di-ignore oleh `.gitignore`.
+
+### Tabel yang dibuat
+
+| Tabel | Isi | Akses baca (RLS) |
+|---|---|---|
+| `profiles` | 1 baris per akun: email, nama, peran (`user`/`admin`) | Sendiri; admin semua. Update peran hanya admin. |
+| `generations` | 1 baris per klik Generate: topik, headline, durasi, jumlah varian, mode, payload permintaan | Sendiri; admin semua. |
+| `narrations` | 1 baris per varian tersimpan (teks + teks normal) — juga sumber riwayat anti-duplikat global | Sendiri; admin semua. |
+
+Penulisan riwayat dilakukan backend dengan service role (tanpa policy insert/update/delete untuk
+user biasa), sehingga konsistensi data tetap terkendali.
 
 ---
 
@@ -16,10 +78,12 @@ Aplikasi web untuk mengubah **teks kasus** (topik, rekomendasi headline, konteks
 
 ### Cara cepat (Windows)
 
-Klik dua kali **`start.bat`** di root proyek. Script akan:
+Selesaikan **Setup Supabase** di atas terlebih dahulu (migrasi SQL + isi `backend/.env` dan
+`frontend/.env.local`). Lalu klik dua kali **`start.bat`** di root proyek. Script akan:
 1. Membuat virtualenv + install dependensi backend dan `npm install` frontend (hanya bila belum ada).
-2. Menjalankan backend (`--host 0.0.0.0`, siap diakses dari perangkat lain) dan frontend di dua jendela terpisah (`Narasi-Backend`, `Narasi-Frontend`).
-3. Mendeteksi IP LAN komputer, menampilkan alamat akses jaringan, dan membuka `http://localhost:3000` di browser.
+2. Memperingatkan bila kredensial Supabase belum lengkap.
+3. Menjalankan backend (`--host 0.0.0.0`, siap diakses dari perangkat lain) dan frontend di dua jendela terpisah (`Narasi-Backend`, `Narasi-Frontend`).
+4. Mendeteksi IP LAN komputer, menampilkan alamat akses jaringan, dan membuka `http://localhost:3000` di browser.
 
 Bila dijalankan **sebagai Administrator**, script otomatis membuka port 8000/3000 di Windows
 Firewall (profil domain/privat, berlaku terus). Tanpa admin, cukup klik **"Allow access"** bila
@@ -49,6 +113,8 @@ python/node lewat Windows Firewall (atau jalankan `start.bat` sebagai Administra
 
 #### 1. Backend (FastAPI, port 8000)
 
+Pastikan `backend/.env` sudah berisi kredensial Supabase (lihat **Setup Supabase**).
+
 ```bash
 cd backend
 python -m venv .venv
@@ -59,9 +125,11 @@ python -m venv .venv
 # Ganti ke --host 127.0.0.1 bila cukup diakses dari komputer ini saja.
 ```
 
-Cek: `http://localhost:8000/api/health` → `{"status":"ok","mode":"mock",...}`
+Cek: `http://localhost:8000/api/health` → `{"status":"ok",...,"supabase":true}`
 
 #### 2. Frontend (Next.js, port 3000)
+
+Pastikan `frontend/.env.local` sudah berisi URL + anon key Supabase.
 
 ```bash
 cd frontend
@@ -69,9 +137,9 @@ npm install
 npm run dev
 ```
 
-Buka `http://localhost:3000`. Frontend otomatis memanggil backend di **host yang sama dengan
-halaman dibuka** (port 8000). `frontend/.env.local` hanya perlu diisi sebagai override eksplisit
-bila backend berada di host/port lain:
+Buka `http://localhost:3000` → diarahkan ke `/login` bila belum masuk. Frontend otomatis memanggil
+backend di **host yang sama dengan halaman dibuka** (port 8000). Isi `NEXT_PUBLIC_API_URL` hanya
+sebagai override eksplisit bila backend berada di host/port lain:
 
 ```env
 # NEXT_PUBLIC_API_URL=http://192.168.1.10:8000
@@ -79,6 +147,9 @@ bila backend berada di host/port lain:
 
 #### 3. Alur pemakaian
 
+0. **Masuk** — gunakan akun yang dibuat admin. Tidak ada pendaftaran mandiri. Admin membuat akun
+   baru (langsung aktif, tanpa verifikasi email) lewat halaman **Admin**. Halaman **Riwayat**
+   menampilkan hasil generate yang tersimpan.
 1. **Tempel Teks Kasus** — paste teks mentah (seperti `backend/../SAMPLE` di halaman: tombol "Isi Contoh Kasus" mengisi contoh kasus BPIH 2027). Klik **Pilah Konten**.
    Pemilah mengenali variasi label bagian (mis. "Rekomendasi Judul", "Sumber", "Larangan", heading markdown `###`, teks tebal) — dan bila teks kasus tidak memuat bagian headline, rekomendasi headline otomatis disusun dari topik (tercatat di Log Agen L1).
 2. **Sunting Hasil Pilah** — semua field bisa diedit: topik, daftar headline (pilih satu sebagai headline utama), konteks per baris, daftar bahan dengan checkbox, Do's/Don'ts. Perbaiki typo langsung di sini.
@@ -113,7 +184,8 @@ Teks kasus mentah
       │
  L0   Orkestrator ───────── rencana produksi: target kata dari durasi,
       │                     alur segmen, jumlah varian, bahan terpilih
- L2   Basis Riwayat ─────── muat narasi lama (SQLite) untuk cek duplikat
+ L2   Basis Riwayat ─────── muat narasi lama dari Supabase (global semua user)
+      │                     untuk cek duplikat
       │                     (dilewati bila aturan anti-duplikat nonaktif)
       │
       ├─ per varian (maks 2–3 percobaan):
@@ -128,7 +200,7 @@ Teks kasus mentah
       │                         (informatif saja bila anti-duplikat nonaktif)
       │                     gagal → revisi (ulang percobaan) → dibatalkan bila tetap mirip
       ▼
- Hasil akhir + log agen lengkap   (hanya varian lolos yang disimpan ke riwayat)
+ Hasil akhir + log agen lengkap   (varian + run tersimpan ke Supabase bila berhasil)
 ```
 
 ### Anti-duplikat (opsional, default aktif)
@@ -138,7 +210,8 @@ Diatur lewat checkbox **"Terapkan aturan anti-duplikat"** di langkah 3 (field AP
 **Saat aktif** (jaminan "jangan ada narasi yang sama"):
 
 - Kemiripan diukur dengan **cosine similarity char-4-gram** terhadap semua varian
-  lain di run yang sama **dan** seluruh riwayat tersimpan (`backend/data/history.sqlite`).
+  lain di run yang sama **dan** 200 narasi terbaru dari tabel `narrations` di Supabase
+  (global lintas pengguna).
 - Bila pembuka (12 kata pertama, dinormalisasi) identik → langsung dianggap duplikat.
 - Ambang default `0.92` (aturan ketat: hanya menangkap yang benar-benar identik/hampir identik);
   setiap gaya punya pembuka, lead-in, dan substitusi sinonim berbeda agar tetap unik.
@@ -157,6 +230,11 @@ Diatur lewat checkbox **"Terapkan aturan anti-duplikat"** di langkah 3 (field AP
 Catatan: pada mode mock (template gaya terbatas), jumlah besar varian unik sulit dicapai
 saat aturan aktif — varian yang mirip otomatis digugurkan sehingga hasil bisa jauh di bawah
 yang diminta. Untuk variasi lebih kaya, pakai mode LLM.
+
+Halaman **Riwayat** mencatat setiap klik Generate sebagai satu baris `generations`
+(termasuk run dengan 0 varian), sedangkan tabel `narrations` menyimpan teks tiap varian.
+Riwayat ini yang dipakai sebagai pembanding anti-duplikat pada run berikutnya — oleh karena itu
+generate ulang dengan input persis sama dapat menghasilkan 0 varian.
 
 ### Estimasi durasi
 
@@ -189,8 +267,8 @@ peringatan rules. Alur `POST /api/fix` (lapisan L5 → L4):
 3. **L4 verifikasi ulang** — kandidat terbaik dipilih berdasarkan lolos-tidaknya fakta
    angka + rules + keunikan (dibanding varian lain dan riwayat, naskah asal dikecualikan
    agar tidak dianggap duplikat dengan dirinya sendiri).
-4. Hasil terbaik ditampilkan dan disimpan ke basis riwayat; bila temuan belum habis,
-   tombol bisa diklik lagi (log mencatat status "catatan").
+4. Hasil terbaik ditampilkan dan disimpan ke tabel `narrations` Supabase; bila temuan belum
+   habis, tombol bisa diklik lagi (log mencatat status "catatan").
 
 ### Media Pendukung (pencarian otomatis)
 
@@ -216,7 +294,7 @@ materi pendukung narasi — tanpa API key tambahan:
 Default berjalan **offline (mock)** — deterministik, tanpa API key, cocok untuk demo dan uji alur.
 Template gaya mock bersifat netral untuk semua topik (tanpa frasa khusus kasus tertentu).
 
-Untuk memakai LLM (OpenAI-compatible), salin `backend/.env.example` → `backend/.env` dan isi:
+Untuk memakai LLM (OpenAI-compatible), isi `backend/.env`:
 
 ```env
 LLM_API_KEY=sk-...
@@ -224,41 +302,66 @@ LLM_BASE_URL=https://api.openai.com/v1
 LLM_MODEL=gpt-4o-mini
 WORDS_PER_MINUTE=150
 DUP_THRESHOLD=0.92
+
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_ANON_KEY=<anon/public key>
+SUPABASE_SERVICE_ROLE_KEY=<service role key>
 ```
 
 Bila `LLM_API_KEY` terisi, L1 (pemilah) dan L3 (penulis) memakai LLM dengan fallback
-otomatis ke heuristik/template bila panggilan gagal.
+otomatis ke heuristik/template bila panggilan gagal. Kredensial Supabase tetap wajib diisi
+agar login dan riwayat berfungsi.
 
 ---
 
 ## API
 
-| Endpoint | Fungsi |
-|---|---|
-| `GET /api/health` | Status server + mode (mock/llm), pengaturan durasi & ambang duplikat |
-| `POST /api/parse` | `{teks}` → field terstruktur (topik, headlines, konteks, bahan, rules) + log L1 |
-| `POST /api/generate` | Konten terpilih + durasi + brief → varian narasi + log semua lapisan |
-| `POST /api/fix` | Teks varian + konteks kasus + rules → naskah ditulis ulang bebas temuan (rewrite + verifikasi ulang) |
-| `POST /api/media` | `{topik, headline, teks}` → video YouTube + gambar Openverse terkait + daftar kueri (UI menyusun tautan pencarian cadangan) |
+Semua endpoint `POST` memerlukan **Bearer access token** dari Supabase Auth
+(dikirim otomatis oleh frontend). Tanpa token valid → `401 Login diperlukan.`
 
-Dokumentasi interaktif: `http://localhost:8000/docs`.
+| Endpoint | Auth | Fungsi |
+|---|---|---|
+| `GET /api/health` | publik | Status server + mode (mock/llm), pengaturan durasi & ambang duplikat, status konfigurasi Supabase |
+| `POST /api/parse` | bearer | `{teks}` → field terstruktur (topik, headlines, konteks, bahan, rules) + log L1 |
+| `POST /api/generate` | bearer | Konten terpilih + durasi + brief → varian narasi + log semua lapisan; run disimpan ke `generations` + `narrations` |
+| `POST /api/fix` | bearer | Teks varian + konteks kasus + rules → naskah ditulis ulang bebas temuan; hasil disimpan ke `narrations` |
+| `POST /api/media` | bearer | `{topik, headline, teks}` → video YouTube + gambar Openverse terkait + daftar kueri (UI menyusun tautan pencarian cadangan) |
+| `POST /api/admin/users` | admin | `{email, password, nama, role}` → akun Supabase langsung terkonfirmasi + profil dengan peran yang diminta; hanya berlaku untuk `profiles.role = 'admin'` |
+
+Dokumentasi interaktif: `http://localhost:8000/docs` (klik **Authorize** dan tempel access token
+bila ingin mencoba endpoint ber-auth dari Swagger).
+
+## Halaman
+
+| Rute | Akses | Isi |
+|---|---|---|
+| `/login` | publik | Masuk (tanpa pendaftaran; akun dibuat admin) |
+| `/` | login | Generator narasi (alur 3 langkah) |
+| `/history` | login | Tabel riwayat generate; user melihat miliknya, admin melihat semua; klik **Lihat** untuk naskah tiap varian |
+| `/admin` | admin | Statistik + manajemen peran user/admin (peran sendiri tidak dapat diubah) |
 
 ## Struktur repo
 
 ```
 backend/
   app/
-    main.py            # FastAPI + CORS
+    main.py            # FastAPI + CORS + dependency auth (Bearer token) + endpoint admin
     schemas.py         # model Pydantic (kontrak API)
     parser.py          # L1 pemilah heuristik + LLM
-    pipeline.py        # orkestrasi L0–L5 + loop revisi
-    store.py           # riwayat narasi (SQLite)
+    pipeline.py        # orkestrasi L0–L5 + loop revisi + simpan riwayat
+    supabase_db.py     # validasi token, profil/peran, buat akun admin, simpan riwayat
     media.py           # pencari media pendukung (YouTube + Openverse) + cache
     textutil.py        # normalisasi angka/teks, similarity, kata kunci
     llm.py             # klien LLM (opsional)
     agents/            # orchestrator, writer, fixer, fact_checker, compliance, uniqueness, editor
+  create_admin.py      # bootstrap admin pertama (project baru)
 frontend/
-  src/app/page.tsx     # alur 3 langkah + contoh kasus
-  src/components/      # EditableList, ResultsPanel, AgentLogPanel
-  src/lib/             # types (mirror schema backend), api client
+  src/app/
+    (auth)/login/      # halaman masuk
+    (app)/             # route terproteksi: generator, history, admin
+  src/components/      # AuthProvider, RequireAuth, TopBar, EditableList, ResultsPanel, AgentLogPanel
+  src/lib/             # types (mirror schema backend), api client, supabase client
+supabase/
+  migrations/0001_init.sql  # profiles, generations, narrations, RLS, trigger profil + backfill admin pertama
+start.bat              # launcher Windows (lokal + LAN)
 ```

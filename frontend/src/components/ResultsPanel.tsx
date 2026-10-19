@@ -48,14 +48,12 @@ function VariantCard({
   const [fixNote, setFixNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [fixError, setFixError] = useState("");
   const [media, setMedia] = useState<MediaResponse | null>(null);
-  const [mediaLoading, setMediaLoading] = useState(false);
+  const [mediaLoading, setMediaLoading] = useState(payload !== null);
   const [mediaError, setMediaError] = useState("");
 
   useEffect(() => {
     if (!payload) return;
     let alive = true;
-    setMediaLoading(true);
-    setMediaError("");
     fetchMedia({
       topik: payload.topik ?? "",
       headline: payload.headlines[0] ?? "",

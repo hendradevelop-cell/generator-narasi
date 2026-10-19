@@ -1,0 +1,12 @@
+# Secrets — jangan pernah commit kredensial Supabase / LLM.
+backend/.env
+backend/.env.local
+
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+
+# Frontend (frontend/.gitignore also covers this)
+frontend/node_modules/
+frontend/.next/

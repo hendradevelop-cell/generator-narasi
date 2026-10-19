@@ -52,6 +52,22 @@ if errorlevel 1 (
 )
 echo.
 
+REM ---------- Cek konfigurasi Supabase ----------
+set DB_READY=1
+findstr /r /c:"^SUPABASE_URL=..*" "backend\.env" >nul 2>&1 || set DB_READY=0
+findstr /r /c:"^SUPABASE_ANON_KEY=..*" "backend\.env" >nul 2>&1 || set DB_READY=0
+findstr /r /c:"^SUPABASE_SERVICE_ROLE_KEY=..*" "backend\.env" >nul 2>&1 || set DB_READY=0
+findstr /r /c:"^NEXT_PUBLIC_SUPABASE_URL=..*" "frontend\.env.local" >nul 2>&1 || set DB_READY=0
+findstr /r /c:"^NEXT_PUBLIC_SUPABASE_ANON_KEY=..*" "frontend\.env.local" >nul 2>&1 || set DB_READY=0
+if "%DB_READY%"=="0" (
+    echo [Setup] Kredensial Supabase belum lengkap.
+    echo         Isi backend\.env ^(SUPABASE_URL / ANON_KEY / SERVICE_ROLE_KEY^)
+    echo         dan frontend\.env.local ^(NEXT_PUBLIC_SUPABASE_URL / ANON_KEY^).
+    echo         Jalankan juga supabase\migrations\0001_init.sql di Supabase SQL Editor.
+    echo         Login belum bisa dipakai sebelum konfigurasi selesai.
+    echo.
+)
+
 REM ---------- Backend ----------
 if not exist "backend\.venv\Scripts\python.exe" (
     echo [Setup] Membuat virtualenv backend + install dependensi ^(sekali saja^)...

@@ -22,13 +22,14 @@ type AuthContextValue = {
   refreshProfile: () => Promise<void>;
 };
 
+type ProfileState = { userId: string; profile: Profile | null } | null;
+
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
+  const [profileState, setProfileState] = useState<ProfileState>(null);
   const [loading, setLoading] = useState(supabaseConfigured);
-  const [profileLoading, setProfileLoading] = useState(false);
   const [refreshTick, setRefreshTick] = useState(0);
 
   useEffect(() => {
@@ -37,20 +38,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     supabase.auth.getSession().then(({ data }) => {
       if (!alive) return;
       setSession(data.session);
-      setProfileLoading(Boolean(data.session));
       setLoading(false);
     });
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, next) => {
+    } = supabase.auth.onAuthStateChange((_event, next) => {
       if (!alive) return;
+      // Event SIGNED_IN juga muncul saat tab kembali aktif; jangan reset status
+      // profil bila user-nya sama supaya UI tidak tertahan di "Memuat sesi…".
       setSession(next);
-      if (!next) {
-        setProfile(null);
-        setProfileLoading(false);
-      } else if (event !== "TOKEN_REFRESHED") {
-        setProfileLoading(true);
-      }
+      if (!next) setProfileState(null);
       setLoading(false);
     });
     return () => {
@@ -59,10 +56,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  const userId = session?.user.id;
+
   useEffect(() => {
-    if (!supabaseConfigured) return;
-    const userId = session?.user.id;
-    if (!userId) return;
+    if (!supabaseConfigured || !userId) return;
     let alive = true;
     supabase
       .from("profiles")
@@ -71,24 +68,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .single()
       .then(({ data, error }) => {
         if (!alive) return;
-        setProfile(error ? null : (data as Profile));
-        setProfileLoading(false);
+        setProfileState({ userId, profile: error ? null : (data as Profile) });
       });
     return () => {
       alive = false;
     };
-  }, [session?.user.id, refreshTick]);
+  }, [userId, refreshTick]);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
-    setProfile(null);
-    setProfileLoading(false);
+    setProfileState(null);
   }, []);
 
   const refreshProfile = useCallback(async () => {
-    setProfileLoading(true);
+    setProfileState(null);
     setRefreshTick((tick) => tick + 1);
   }, []);
+
+  const profileLoading = Boolean(userId) && profileState?.userId !== userId;
+  const profile =
+    profileState && profileState.userId === userId ? profileState.profile : null;
 
   const value = useMemo(
     () => ({
